@@ -13,6 +13,7 @@ library(glmnet)
 library(dplyr)
 library(boot)
 library(ggplot2)
+library(gridExtra)
 
 
 #Load the data
@@ -23,18 +24,18 @@ X_scaled <- scale(X, scale = TRUE)
 ```
 
 
-# Part 1: Analysis of gene expression data
+### Prediction models
 
-## Evaluation and comparison prediction of the models
+### Fitting prediction models based on training dataset
 
-In this step, the goal was to predict the ER status using gene expression levels. First, the data was randomly split into a a training (70%) and test (30%) datasets. We  evaluated Principal Component (PCR), Ridge Regression, and Lasso Regression models. The training dataset was utilized for model training, validation and hyperparameter tuning such as the number of Principal Components (PCs) for PCR and the regularization parameter $\lambda$ in the Ridge and Lasso models. The test data was used for accessing the performance of models.
+In this step, the goal was to predict the ER status using gene expression levels. We have chosen to retain a potential outlier within our data for predictive purposes, recognizing that such outliers may represent rare but important cases.  Also, this decision is made considering the difficulty in determining its significance without the inclusion of additional contextual information. First, the data was randomly split into a training (70%) and test (30%) dataset. We  evaluated Principal Component (PCR), Ridge, and Lasso regression models. The training dataset was utilized for model training, validation and hyperparameter tuning, such as the number of Principal Components (PCs) for PCR and the regularization parameter $\lambda$ in the Ridge and Lasso models. The test data was used for assessing the performance of the generated models.
 
 ```{r data split, echo = FALSE}
 # Split the data into train and test
 # Set seed for reproducibility, RNGkind is used to specify how sample() works
 RNGkind(sample.kind = "Rounding")
 set.seed(1234) 
-n <- nrow(X)
+n <- nrow(X_scaled)
 nTrain <- round(0.7*n)
 indTrain <- sample(n,nTrain)
 XTrain <- X_scaled[indTrain,]
@@ -42,10 +43,13 @@ YTrain <- Y[indTrain]
 XTest <- X_scaled[-indTrain, ]
 YTest <- Y[-indTrain]
 ```
-### Principal Component Regression
-First, principal component analysis (PCA) was employed to reduce dimensionality of the gene expression data, resulting in 236 principal components (PCs). The training dataset was used to fit the model, and cross-validation was implemented to determine the optimal number of PCs, using the misclassification rate as the performance metric. A warning of 'fitted probabilities numerically 0 or 1 occurred' was observed when more than 13 PCs were used, suggesting potential overfitting of the model due to excessively good data separation. Through the cross-validation procedure, it was established that the first 7 principal components struck the best balance between capturing essential features of the gene expression data and accurately predicting the Estrogen Receptor (ER) status. 
+
+
+#### Principal Component Regression
+
+First, principal component analysis (PCA) was employed to reduce dimensionality of the gene expression data, resulting in 236 principal components (PCs). The training dataset was used to fit the model, and cross-validation was implemented to determine the optimal number of PCs, using the misclassification rate as the performance metric. A warning of 'fitted probabilities numerically 0 or 1 occurred' was observed when more than 13 PCs were used, suggesting potential overfitting of the model due to excessively good data separation. Through the cross-validation procedure, it was established that the first 7 principal components struck the best balance between capturing essential features of the gene expression data and accurately predicting the ER status. 
 The plot below visualizes the misclassification error rates resulting from the use of varying numbers of principal components in the predictive model.
-A sharp decline in error is observed as the number of components increases from 1 to 3, suggesting a significant gain in predictive power with the inclusion of the second and third principal component. The error decreases further, albeit at a slower rate, until it reaches a minimum at 5.5% at 7 components. Beyond this point, adding more components does not substantially improve the model's performance, and in some cases, it slightly increases the error, indicating a potential overfit or that these additional components do not contribute meaningful information for the prediction. Consequently, we decided to further restrict the model to these 7 PCs. These components were then selected for subsequent analyses. This approach significantly reduced the complexity of the model while retaining the most informative aspects of the data for predicting ER status in breast cancer patients.
+A sharp decline in error is observed as the number of components increases from 1 to 3, suggesting a significant gain in predictive power with the inclusion of the second and third PC. The error decreases further, albeit at a slower rate, until it reaches a minimum on 5.5% at 7 components. Beyond this point, adding more PCs does not substantially improve the model's performance, and in some cases, it slightly increases the error, indicating a potential overfit or that these additional components do not contribute meaningful information for the prediction. Consequently, we decided to further restrict the model to these 7 PCs with a misclassification error of 5.5%. These components were then selected for subsequent analyses. This approach significantly reduced the complexity of the model while retaining the most informative aspects of the data for predicting ER status in breast cancer patients.
 
 ```{r pcr, results='hide', echo = FALSE}
 # Principal Component Regression
@@ -100,8 +104,10 @@ final_pcr_model <- glm(YTrain ~ ., data = final_pcr_data,
                        family = "binomial")
 ```
 
-## Ridge Regression
-Next, Ridge Regression was applied to the training data as a regularized linear regression method to address potential overfitting. It incorporates an $L_2$  penalty term—squared magnitude of coefficients—into the loss function, regulated by the $\lambda$ parameter. During cross-validation, the goal was to find the $\lambda$ that yielded the lowest misclassification error. The optimal $\lambda$ was found to be 1.748. A $\lambda$ of 2.310, within one standard error of the optimal, was also considered as it corresponds to a simpler model that is expected to perform comparably to the model with the optimal lambda.
+
+#### Ridge Regression
+
+Next, Ridge Regression was applied to the training data as a regularized linear regression method to address potential overfitting. It incorporates an $L_2$  penalty term (sum of squared magnitude of the regression coefficients) into the loss function, regulated by the $\lambda$ parameter. During cross-validation, the goal was to find the $\lambda$ that yielded the lowest misclassification error. The optimal $\lambda$ was found to be 1.748. A $\lambda$ of 2.310, within one standard error of the optimal, was also considered as it corresponds to a simpler model that is expected to perform comparably to the model with the optimal lambda.
 
 ```{r ridge, results='hide', echo=FALSE}
 
@@ -129,7 +135,6 @@ text(log(lambda), -0.05, labels = expression(lambda == 1.748),
      adj = -0.5, col = "firebrick")
 abline(v = log(lambda), col = "firebrick", lwd = 2)
 
-
 Ridge_opt <- glmnet(x = XTrain,
                     y = YTrain,
                     alpha = 0,
@@ -144,8 +149,9 @@ Ridge_1se <- glmnet(x = XTrain,
 
 ```
 
-## Lasso Regression
-Finally, Lasso Regression, which utilizes $L_1$ norm penalty, was conducted using the training dataset. It can be seen at figure below,  with increasing of $\lambda$ the estimates shrunk towards zero, so it can be used as feature selection. Cross-validation determined the optimal $\lambda$ to be 0.06684, with a larger value of $\lambda$ equal to 0.08434, within one standard deviation of the optimal, also considered for comparison. 
+#### Lasso Regression
+
+Finally, Lasso Regression, which utilizes $L_1$ norm penalty (sum of absolute value of the regression coefficients), was conducted using the training dataset. It can be seen at figure below, with increasing values of $\lambda$,  a higher number of estimates became equal to zero, so it can be used as feature selection. Cross-validation determined the optimal $\lambda$ to be 0.06684, with a larger value of $\lambda$ equal to 0.08434, within one standard deviation of the optimal, also considered for comparison. 
 
 ```{r lasso, echo=FALSE}
 # Model fitting
@@ -168,18 +174,29 @@ lambdal <- Lasso_CV$lambda.min
 text(log(lambdal), -0.05, labels = expression(lambda == 0.06684),
      adj = -0.5, col = "firebrick")
 abline(v = log(lambdal), col = "firebrick", lwd = 2)
+```
 
+
+The model with the optimal $\lambda$ retains 17 predictors with non-zero regression coefficients, signifying the involvement of 17 genes. In contrast, the model includes only 12 genes when $\lambda$ set to one standard deviation of the optimal. The genes with their respective contributions are shown for both models in the plots below. The genes are ordered by decreasing absolute magnitude of the regression coefficients.
+
+```{r lasso2, echo=FALSE}
 Lasso_opt <- glmnet(x = XTrain,
                     y = YTrain,
                     alpha = 1,
                     lambda = Lasso_CV$lambda.min,
                     family="binomial")
-qplot(
-  summary(coef(Lasso_opt))[-1,1],
-  summary(coef(Lasso_opt))[-1,3]) +
-  xlab("gene ID") +
-  ylab("ER") +
-  geom_hline(yintercept = 0, color = "red")
+gene_names_l_opt <- Lasso_opt[["beta"]]@Dimnames[[1]][Lasso_opt[["beta"]]@i+1]
+ggplot() +
+  geom_bar(aes(x = reorder(gene_names_l_opt,
+                           abs(summary(coef(Lasso_opt))[-1,3])),
+               y = summary(coef(Lasso_opt))[-1,3]),
+           stat = "identity") +
+  geom_text(x = '') +
+  ylab("Coefficients") +
+  coord_flip() +
+  ggtitle("Coefficients of optimal Lasso Regression Model") +
+  theme(axis.title.y = element_blank(),
+        axis.text = element_text(size = 9))
 
 Lasso_1se <- glmnet(x = XTrain,
                     y = YTrain,
@@ -187,19 +204,24 @@ Lasso_1se <- glmnet(x = XTrain,
                     lambda = Lasso_CV$lambda.1se,
                     family="binomial")
 
-```
-The model with the optimal $\lambda$ retains 17 predictors with non-zero coefficients, signifying the involvement of 17 genes. These genes are illustrated in the figure above, and their names are shown below.
-```{r genes_opt, echo=FALSE}
-Lasso_opt[["beta"]]@Dimnames[[1]][Lasso_opt[["beta"]]@i]
+gene_names_l_1se <- Lasso_1se[["beta"]]@Dimnames[[1]][Lasso_1se[["beta"]]@i+1]
+ggplot() +
+  geom_bar(aes(x = reorder(gene_names_l_1se,
+                           abs(summary(coef(Lasso_1se))[-1,3])),
+               y = summary(coef(Lasso_1se))[-1,3]),
+           stat = "identity") +
+  geom_text(x = '') +
+  ylab("Coefficients") +
+  coord_flip() +
+  ggtitle("Coefficients of Lasso Regression Model within 1 se of the optimal") +
+  theme(axis.title.y = element_blank(),
+        axis.text = element_text(size = 10))
 ```
 
- In contrast, with the $\lambda$ set within one standard deviation of the optimal, the model includes only 12 genes, whose names are:
-```{r genes_1se, echo=FALSE}
-Lasso_1se[["beta"]]@Dimnames[[1]][Lasso_1se[["beta"]]@i]
-```
  
-## Evaluation and comparison of the models on test data
-After constructing the optimal models which include PCR, Ridge Regression with optimal $\lambda$ (Ridge_opt), Ridge Regression with a $\lambda$ within one standard error (Ridge_1se), Lasso Regression with optimal $\lambda$ (Lasso_opt), and Lasso Regression with a $\lambda$ within one standard error (Lasso_1se), their performance was evaluated using the test dataset. The primary metric for this assessment was the misclassification error with a threshold being 0.5. The results indicated low misclassification errors for each model: PCR, Ridge_opt, and Lasso_1se all showed 4.5% error rate, corresponding to 5 incorrect predictions out of 101 test data points. Meanwhile, Ridge_1se and Lasso_opt demonstrated a slightly better performance at 3.9% error rate, equating to 4 misclassifications in the same 101 test data points. It is worth noting that each model presents a unique set of strengths and limitations. PCR is effective in handling multicollinearity but may lack in direct interpretability. Ridge Regression mitigates overfitting and maintains a comprehensive view by including all predictors, though this can make the model less parsimonious. Lasso Regression stands out for its feature selection capability, leading to more interpretable models but requires careful tuning to avoid excluding important variables. 
+### Evaluation and comparison of the models based on test dataset
+
+After constructing the optimal models which include PCR, Ridge Regression with optimal $\lambda$ (Ridge_opt), Ridge Regression with a $\lambda$ within one standard error (Ridge_1se), Lasso Regression with optimal $\lambda$ (Lasso_opt), and Lasso Regression with a $\lambda$ within one standard error (Lasso_1se), their performance was evaluated using the test dataset. The primary metric for this assessment was the misclassification error with a threshold being 0.5 (indicating the miscalssification error if assigment to the groups were at random). The results indicated low misclassification errors for each model: PCR, Ridge_opt, and Lasso_1se all showed 4.5% error rate, corresponding to 5 incorrect predictions out of 101 test data points. Meanwhile, Ridge_1se and Lasso_opt demonstrated a slightly better performance at 3.9% error rate, equating to 4 misclassifications in the same 101 test data points. It is worth noting that each model presents a unique set of strengths and limitations. PCR is effective in handling multicollinearity but may lack in direct interpretability. Ridge Regression mitigates overfitting and maintains a comprehensive view by including all predictors, though this can make the model less parsimonious. Lasso Regression stands out for its feature selection capability, leading to more interpretable models but requires careful tuning to avoid excluding important variables. 
 
 ```{r comparison, echo=FALSE}
 # PCR: performance on test data
@@ -237,7 +259,7 @@ lasso_misclassification_error_1se <-
     misclass_error(YTest, lasso_preds_1se)
 ```
 
-To further illustrate the performance of the models, we created a violin plot that displays the predicted probabilities of ER status from different predictive models alongside the actual outcomes in test dataset. The x-axis shows the actual ER status, categorized as 0 (absence of ER) or 1 (presence of ER), and the predictive models used for each status. The y-axis represents the predicted probability for the ER status being 1. A violin shape at each category of actual ER status represents the kernel density estimation of the predicted probabilities for that category, showing the distribution and concentration of predictions made by each model. The red points represent misclassified instances, where the model's prediction did not match the actual ER status. These are plotted at the predicted probability levels for visualization. The spread of the violin plots indicates the range and density of the predicted probabilities. A narrower plot signifies less variance in predictions, while a wider plot indicates greater variance. The alignment of the violins and points across the models allows for a direct comparison of prediction distributions and misclassification rates between them. The graph also serves as a visual comparison between models, highlighting their predictive behaviors.
+To further illustrate the performance of the models, we created a violin plot that displays the predicted probabilities of ER status from different predictive models alongside the actual outcomes in test dataset. The x-axis shows the actual ER status, categorized as 0 (ER negative) or 1 (ER positive), and the predictive models used for each status. The y-axis represents the predicted probability for the ER status being 1. A violin shape at each category of actual ER status represents the kernel density estimation of the predicted probabilities for that category, showing the distribution and concentration of predictions made by each model. The red points represent misclassified instances, where the model's prediction did not match the actual ER status. The violin plots depict the distribution and density of the predicted probabilities for each model. The width of the plot at different probability levels indicates the density of predictions, with a wider section representing a higher density of data points at that predicted probability. The alignment of the violins and points across the models allows for a direct comparison of prediction distributions and misclassification rates between them. The graph also serves as a visual comparison between models, highlighting their predictive behaviors.
 
 ```{r violin, echo=FALSE}
 #Given that the error counts are consistent (4 or 5 errors out of 101  data points) across models, it is informative to visualize the 
@@ -294,5 +316,5 @@ ggplot(combined_data, aes(x = interaction(Actual, Model), y = Prediction, fill =
          color = guide_legend(title = "Misclassified"))  
 
 ```
-To sum up, the ER status can be predicted from the gene expression data with low misclassification errors, and the selection of the appropriate model depends on the specific goal of the study as well as requirements and nuances of the dataset in question.
 
+To sum up, the ER status can be predicted from the gene expression data with low misclassification errors using different fitting techniques (PCR, Ridge and Lasso regression). The selection of the appropriate model depends on the specific goal of the study as well as requirements and nuances of the dataset in question. It is crucial to thoroughly assess the potential outlier and, when warranted, consider its exclusion to ensure the accuracy and validity of the model.
